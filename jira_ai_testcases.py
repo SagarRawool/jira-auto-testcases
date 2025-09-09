@@ -1,24 +1,7 @@
-import os
-from jira import JIRA
-from openai import OpenAI
-from dotenv import load_dotenv
+from flask import Flask, request, jsonify
 
-# Load credentials from .env file
-load_dotenv()
-
-JIRA_URL = os.getenv("JIRA_URL")
-JIRA_EMAIL = os.getenv("JIRA_EMAIL")
-JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-# Connect to Jira
-jira = JIRA(
-    server=JIRA_URL,
-    basic_auth=(JIRA_EMAIL, JIRA_API_TOKEN)
-)
-
-# Connect to OpenAI
-client = OpenAI(api_key=OPENAI_API_KEY)
+# Initialize Flask app
+app = Flask(__name__)
 
 def generate_test_cases(requirement: str) -> str:
     """Generate test cases from requirement using AI"""
@@ -31,20 +14,25 @@ def generate_test_cases(requirement: str) -> str:
     )
     return response.choices[0].message.content
 
-def process_jira_tickets():
-    """Find Jira issues in QA Needed status and add test cases"""
-    # Adjust JQL as per your workflow/status
-    issues = jira.search_issues('status="QA Needed"')
+@app.route("/webhook", methods=["POST"])
+def jira_webhook():
+    """Receive Jira webhook payload"""
+    data = request.json
+    issue_key = data["client_payload"]["issueKey"]
 
-    for issue in issues:
-        print(f"🔎 Processing issue {issue.key}: {issue.fields.summary}")
+    # Fetch issue details from Jira
+    issue = jira.issue(issue_key)
+    description = issue.fields.description or "No description provided."
 
-        description = issue.fields.description or "No description provided."
-        test_cases = generate_test_cases(description)
+    # Generate test cases
+    test_cases = generate_test_cases(description)
 
-        # Add test cases as a comment in Jira
-        jira.add_comment(issue, f"🤖 AI-Generated Test Cases:\n\n{test_cases}")
-        print(f"✅ Added test cases to {issue.key}")
+    # Add test cases as comment in Jira
+    jira.add_comment(issue, f"🤖 AI-Generated Test Cases:\n\n{test_cases}")
+
+    print(f"✅ Added test cases to {issue.key}")
+    return jsonify({"status": "success", "issue": issue_key}), 200
 
 if __name__ == "__main__":
-    process_jira_tickets()
+    # Run Flask app on port 5000
+    app.run(host="0.0.0.0", port=5000)
